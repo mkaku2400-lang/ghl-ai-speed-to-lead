@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Megan Carter",
+    "email": "megan.carter@example.com",
+    "phone": "+1 614 555 0142",
+    "address": "Clintonville, Columbus",
+    "message": "Our AC stopped blowing cold air this morning. It is 84 degrees inside and we have a 3 month old baby. The outdoor unit is running but the air from the vents is warm. Can someone come out today?"
+  },
+  {
+    "name": "Daniel Brooks",
+    "email": "dbrooks@example.com",
+    "phone": "",
+    "address": "Westerville",
+    "message": "Our furnace is 18 years old and we are thinking about replacing it before it gets really cold. What kind of options do you have for a 2,000 sq ft two-story house? Gas line is already there."
+  },
+  {
+    "name": "Priya Nair",
+    "email": "priya.nair@example.com",
+    "phone": "",
+    "address": "",
+    "message": "How much do you usually charge to clean out a kitchen drain?"
+  },
+  {
+    "name": "Rank Boost Agency",
+    "email": "sales@rankboost-agency.example",
+    "phone": "",
+    "address": "",
+    "message": "We can put your business at #1 on Google Maps in 7 days, guaranteed. Only $99 this month. Reply YES to start."
+  },
+  {
+    "name": "Tom Alvarez",
+    "email": "tom@alvarezproperties.example",
+    "phone": "+1 614 555 0187",
+    "address": "German Village, Columbus",
+    "message": "I manage 12 rental units. The water heater in unit 4B is leaking onto the floor and the tenant has no hot water. Need someone before Friday. Also want a quote for yearly maintenance on all units."
+  }
+]

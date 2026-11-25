@@ -1,0 +1,238 @@
+{
+  "name": "GHL AI Speed-to-Lead: qualify every new lead in seconds",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Request service",
+        "formDescription": "Northside Heating & Plumbing. Tell us what is going on and we will get back to you fast.",
+        "formFields": {
+          "values": [
+            { "fieldLabel": "Name", "requiredField": true },
+            { "fieldLabel": "Email", "fieldType": "email", "requiredField": true },
+            { "fieldLabel": "Phone" },
+            { "fieldLabel": "Address or area" },
+            { "fieldLabel": "What do you need?", "fieldType": "textarea", "requiredField": true }
+          ]
+        },
+        "options": {
+          "path": "service-request",
+          "formSubmittedText": "Thanks, we have your request. Someone from our team will contact you shortly."
+        }
+      },
+      "id": "6a1c0001-0001-4c1e-9a10-a1b2c3d60001",
+      "name": "Website form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [0, 0],
+      "webhookId": "6d6f4a1e-7c2b-4b8e-9f10-ghlservicereq"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghl-lead",
+        "options": {}
+      },
+      "id": "6a1c0002-0002-4c1e-9a10-a1b2c3d60002",
+      "name": "GHL workflow webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 220],
+      "webhookId": "6a3e2c71-1d4f-4f6a-b2c9-ghlleadhook01"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Both triggers end up here: the website form (fields by label) and a GoHighLevel\n// workflow webhook (contact fields in a JSON body). Turn either into one clean lead.\n\n// The business the replies are written for. Change these lines for a client.\nconst BUSINESS = 'Northside Heating & Plumbing, a home services company in Columbus, Ohio: AC and furnace repair and replacement, water heaters, drain cleaning, general plumbing, same-day emergency calls';\nconst SIGN_OFF = 'Northside Heating & Plumbing';\n\nreturn $input.all().map((item) => {\n  const fromWebhook = item.json.body !== undefined;\n  const src = fromWebhook ? item.json.body : item.json;\n  const pick = (...keys) => {\n    for (const key of keys) {\n      const value = src[key];\n      if (value !== undefined && value !== null && String(value).trim() !== '') {\n        return String(value).trim();\n      }\n    }\n    return '';\n  };\n  const name = pick('Name', 'name', 'full_name') ||\n    [pick('first_name', 'firstName'), pick('last_name', 'lastName')].filter(Boolean).join(' ');\n\n  return {\n    json: {\n      name,\n      email: pick('Email', 'email').toLowerCase(),\n      phone: pick('Phone', 'phone'),\n      area: pick('Address or area', 'address', 'address1', 'city'),\n      message: pick('What do you need?', 'message', 'Message', 'notes').slice(0, 4000),\n      source: fromWebhook ? (pick('source').slice(0, 40) || 'GHL workflow') : 'website form',\n      ghl_contact_id: fromWebhook ? pick('contact_id', 'contactId') : '',\n      received_at: new Date().toISOString(),\n      business: BUSINESS,\n      sign_off: SIGN_OFF,\n    },\n  };\n});"
+      },
+      "id": "6a1c0003-0003-4c1e-9a10-a1b2c3d60003",
+      "name": "Clean up the lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 110]
+    },
+    {
+      "parameters": {
+        "text": "=Name: {{ $json.name }}\nPhone given: {{ $json.phone ? 'yes' : 'no' }}\nArea: {{ $json.area || 'not given' }}\nMessage:\n{{ $json.message }}",
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"category\": {\n      \"type\": \"string\",\n      \"enum\": [\"hot\", \"warm\", \"cold\", \"spam\"],\n      \"description\": \"hot = needs a service we offer now or soon (broken equipment, leak, no heat or cooling, a firm date). warm = real need but planning or no rush (replacement next season, comparing options). cold = only asking prices or general questions. spam = selling something to us, mass mailing, or unrelated.\"\n    },\n    \"service\": {\n      \"type\": \"string\",\n      \"description\": \"Which of the business's services fits best, in 2 to 4 lowercase words (for example 'ac repair', 'water heater', 'drain cleaning'). 'other' if none fits.\"\n    },\n    \"urgency\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"normal\", \"low\"],\n      \"description\": \"high only if they say today, tomorrow, a deadline, no heat or cooling, an active leak, or a safety risk.\"\n    },\n    \"summary\": {\n      \"type\": \"string\",\n      \"description\": \"One sentence, at most 25 words: who they are and what they need. Facts from the message only.\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"At most 20 words: the facts from the message that decided the category.\"\n    },\n    \"reply_draft\": {\n      \"type\": \"string\",\n      \"description\": \"Text or email reply for a person to review before sending. Required for hot, warm and cold leads. Empty string only for spam.\"\n    }\n  },\n  \"required\": [\"category\", \"service\", \"urgency\", \"summary\", \"reason\", \"reply_draft\"]\n}",
+        "options": {
+          "systemPromptTemplate": "=You sort incoming leads for this business: {{ $json.business }}.\n\nRead the lead and fill every field. Use only facts that are in the lead. Never invent prices, dates, arrival times or availability.\n\nRules for reply_draft:\n- Always write one for hot, warm and cold leads. Only spam gets an empty string.\n- Plain text, 40 to 90 words, short enough to send as a text message or email.\n- Start with \"Hi {first name},\" and go straight to their situation. No \"Thank you for reaching out\".\n- Mention one specific detail from their message so it is clear a person read it.\n- Never ask for something they already gave (phone, address, the problem).\n- hot: say a team member will call them shortly to set a time, and ask one question that helps the technician prepare. Never promise an arrival time or say a slot is free: you cannot see the schedule.\n- warm: ask the one or two questions needed to quote the job.\n- cold: answer briefly and honestly, say the price depends on the job, and offer a free estimate.\n- spam: empty string.\n- Questions end with a question mark. Write numbers as digits.\n- No exclamation marks, no emojis.\n- End with \"{{ $json.sign_off }}\" on its own line."
+        }
+      },
+      "id": "6a1c0004-0004-4c1e-9a10-a1b2c3d60004",
+      "name": "Qualify the lead (AI)",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [500, 110]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": { "temperature": 0.2 }
+      },
+      "id": "6a1c0005-0005-4c1e-9a10-a1b2c3d60005",
+      "name": "Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [500, 330],
+      "credentials": {
+        "googlePalmApi": { "id": "__GEMINI_CREDENTIAL_ID__", "name": "Gemini API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Join the lead with what the AI decided, guard against odd output,\n// and prepare everything GoHighLevel needs: tags, stage, note and task text.\nconst LOCATION_ID = '__GHL_LOCATION_ID__';\nconst PIPELINE_ID = '__GHL_PIPELINE_ID__';\nconst STAGE = {\n  hot: '__GHL_STAGE_ID:hot__',\n  warm: '__GHL_STAGE_ID:warm__',\n  cold: '__GHL_STAGE_ID:cold__',\n  spam: '__GHL_STAGE_ID:spam__',\n};\nconst NEXT_STEP = {\n  hot: 'Call today',\n  warm: 'Reply today with questions',\n  cold: 'Send short info reply',\n  spam: 'Ignore',\n};\n\nreturn $input.all().map((item, index) => {\n  const lead = $('Clean up the lead').itemMatching(index).json;\n  const ai = item.json.output || {};\n  const category = NEXT_STEP[ai.category] ? ai.category : 'warm';\n  const urgency = ['high', 'normal', 'low'].includes(ai.urgency) ? ai.urgency : 'normal';\n  const service = String(ai.service || 'other').toLowerCase().slice(0, 40);\n  const reply = category === 'spam' ? '' : String(ai.reply_draft || '').trim();\n  const nextStep = category !== 'spam' && !reply\n    ? NEXT_STEP[category] + ' (no AI draft, write the reply by hand)'\n    : NEXT_STEP[category];\n\n  const parts = lead.name.split(/\\s+/).filter(Boolean);\n  const firstName = parts[0] || '';\n  const lastName = parts.slice(1).join(' ');\n  const tags = ['ai-' + category, 'speed-to-lead'];\n  if (urgency === 'high') tags.push('urgent');\n  if (service && service !== 'other') tags.push(service.replace(/[^a-z0-9 ]/g, '').trim().replace(/ +/g, '-'));\n\n  const note = [\n    'AI lead check (' + category.toUpperCase() + ', urgency ' + urgency + ')',\n    'Summary: ' + (ai.summary || ''),\n    'Why: ' + (ai.reason || ''),\n    'Service: ' + service,\n    'Next step: ' + nextStep,\n    '',\n    'Their message:',\n    lead.message,\n    '',\n    reply ? 'Reply draft (check before sending):\\n' + reply : 'No reply: marked as spam.',\n  ].join('\\n');\n\n  return {\n    json: {\n      received_at: lead.received_at,\n      source: lead.source,\n      name: lead.name,\n      first_name: firstName,\n      last_name: lastName,\n      email: lead.email,\n      phone: lead.phone,\n      area: lead.area,\n      message: lead.message,\n      category,\n      urgency,\n      service,\n      summary: ai.summary || '',\n      reason: ai.reason || '',\n      reply_draft: reply,\n      next_step: nextStep,\n      tags,\n      note,\n      location_id: LOCATION_ID,\n      pipeline_id: PIPELINE_ID,\n      stage_id: STAGE[category],\n      opportunity_name: (lead.name || 'New lead') + ' - ' + service,\n      task_title: 'Call ' + (firstName || 'new lead') + ' now: ' + service,\n      task_due: new Date(Date.now() + 60 * 60 * 1000).toISOString(),\n    },\n  };\n});"
+      },
+      "id": "6a1c0006-0006-4c1e-9a10-a1b2c3d60006",
+      "name": "Build the lead record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 110]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/contacts/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Version", "value": "2021-07-28" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ locationId: $json.location_id, firstName: $json.first_name, lastName: $json.last_name, email: $json.email || undefined, phone: $json.phone || undefined, address1: $json.area || undefined, source: 'AI speed-to-lead (' + $json.source + ')', tags: $json.tags }) }}",
+        "options": {}
+      },
+      "id": "6a1c0007-0007-4c1e-9a10-a1b2c3d60007",
+      "name": "GHL: create or update contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 110],
+      "credentials": {
+        "httpHeaderAuth": { "id": "__GHL_CREDENTIAL_ID__", "name": "GoHighLevel token" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://services.leadconnectorhq.com/contacts/{{ $json.contact.id }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Version", "value": "2021-07-28" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ body: $('Build the lead record').item.json.note }) }}",
+        "options": {}
+      },
+      "id": "6a1c0008-0008-4c1e-9a10-a1b2c3d60008",
+      "name": "GHL: add AI note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 110],
+      "credentials": {
+        "httpHeaderAuth": { "id": "__GHL_CREDENTIAL_ID__", "name": "GoHighLevel token" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "6a1c-notspam-0001",
+              "leftValue": "={{ $('Build the lead record').item.json.category }}",
+              "rightValue": "spam",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6a1c0009-0009-4c1e-9a10-a1b2c3d60009",
+      "name": "Real lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1480, 110]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/opportunities/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Version", "value": "2021-07-28" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ locationId: $('Build the lead record').item.json.location_id, pipelineId: $('Build the lead record').item.json.pipeline_id, pipelineStageId: $('Build the lead record').item.json.stage_id, name: $('Build the lead record').item.json.opportunity_name, status: 'open', contactId: $('GHL: create or update contact').item.json.contact.id }) }}",
+        "options": {}
+      },
+      "id": "6a1c0010-0010-4c1e-9a10-a1b2c3d60010",
+      "name": "GHL: add to pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 20],
+      "credentials": {
+        "httpHeaderAuth": { "id": "__GHL_CREDENTIAL_ID__", "name": "GoHighLevel token" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "6a1c-hot-0001",
+              "leftValue": "={{ $('Build the lead record').item.json.category }}",
+              "rightValue": "hot",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6a1c0011-0011-4c1e-9a10-a1b2c3d60011",
+      "name": "Hot lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1920, 20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://services.leadconnectorhq.com/contacts/{{ $('GHL: create or update contact').item.json.contact.id }}/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Version", "value": "2021-07-28" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $('Build the lead record').item.json.task_title, body: $('Build the lead record').item.json.summary + '\\n\\nReply draft is in the contact notes.', dueDate: $('Build the lead record').item.json.task_due, completed: false }) }}",
+        "options": {}
+      },
+      "id": "6a1c0012-0012-4c1e-9a10-a1b2c3d60012",
+      "name": "GHL: call-back task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2140, -60],
+      "credentials": {
+        "httpHeaderAuth": { "id": "__GHL_CREDENTIAL_ID__", "name": "GoHighLevel token" }
+      }
+    }
+  ],
+  "connections": {
+    "Website form": { "main": [[{ "node": "Clean up the lead", "type": "main", "index": 0 }]] },
+    "GHL workflow webhook": { "main": [[{ "node": "Clean up the lead", "type": "main", "index": 0 }]] },
+    "Clean up the lead": { "main": [[{ "node": "Qualify the lead (AI)", "type": "main", "index": 0 }]] },
+    "Gemini": { "ai_languageModel": [[{ "node": "Qualify the lead (AI)", "type": "ai_languageModel", "index": 0 }]] },
+    "Qualify the lead (AI)": { "main": [[{ "node": "Build the lead record", "type": "main", "index": 0 }]] },
+    "Build the lead record": { "main": [[{ "node": "GHL: create or update contact", "type": "main", "index": 0 }]] },
+    "GHL: create or update contact": { "main": [[{ "node": "GHL: add AI note", "type": "main", "index": 0 }]] },
+    "GHL: add AI note": { "main": [[{ "node": "Real lead?", "type": "main", "index": 0 }]] },
+    "Real lead?": { "main": [[{ "node": "GHL: add to pipeline", "type": "main", "index": 0 }], []] },
+    "GHL: add to pipeline": { "main": [[{ "node": "Hot lead?", "type": "main", "index": 0 }]] },
+    "Hot lead?": { "main": [[{ "node": "GHL: call-back task", "type": "main", "index": 0 }], []] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
